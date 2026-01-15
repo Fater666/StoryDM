@@ -27,9 +27,9 @@ interface AppState {
 }
 
 const defaultAIConfig: AIConfig = {
-  modelUrl: '',
-  modelName: '',
-  apiKey: '',
+  modelUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  modelName: 'gemini-2.0-flash',
+  apiKey: 'AIzaSyCnCkszEY0Mm08iUN3TtfZVbpBlDXwV3qY',
   embeddingUrl: '',
 };
 

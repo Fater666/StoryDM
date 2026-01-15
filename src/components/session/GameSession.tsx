@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Dices, MessageSquare, Clock, Users, Scroll, ChevronRight, Loader2, Send } from 'lucide-react';
+import { Play, Pause, Dices, MessageSquare, Clock, Users, Scroll, ChevronRight, Loader2, Send, Wand2, Sparkles, Swords, Compass, MessageCircle, HelpCircle, Coffee } from 'lucide-react';
 import { Button, Card, Textarea, Modal, Select } from '@/components/ui';
 import { DiceRoller, DiceResult } from '@/components/ui/Dice';
 import { useSessionStore, useCharacterStore, useWorldStore, useAppStore } from '@/stores';
@@ -77,6 +77,15 @@ export function GameSession() {
   
   // DM叙述输入
   const [dmNarration, setDmNarration] = useState('');
+  
+  // AI 建议
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<{
+    title: string;
+    content: string;
+    type: 'combat' | 'exploration' | 'social' | 'mystery' | 'rest';
+  }[]>([]);
   
   useEffect(() => {
     if (currentWorldId) {
@@ -304,17 +313,102 @@ export function GameSession() {
     }]);
   };
   
-  const handleDMNarration = () => {
+  const handleDMNarration = async () => {
     if (!dmNarration.trim()) return;
+    
+    const narrationText = dmNarration;
     
     setGameLog(prev => [...prev, {
       type: 'narration',
-      content: dmNarration,
+      content: narrationText,
       timestamp: new Date(),
     }]);
     
-    setCurrentSituation(dmNarration);
+    setCurrentSituation(narrationText);
     setDmNarration('');
+    setShowSuggestions(false);
+    
+    // 自动触发 AI 角色行动
+    if (aiService.isConfigured() && currentSession && currentWorld) {
+      // 延迟一小段时间，让用户看到场景描述
+      setTimeout(() => {
+        handleRequestAIActions();
+      }, 500);
+    }
+  };
+  
+  // 获取 AI 建议
+  const handleGetSuggestions = async () => {
+    if (!currentWorld || !aiService.isConfigured()) {
+      setGameLog(prev => [...prev, {
+        type: 'system',
+        content: '请先配置 AI 服务',
+        timestamp: new Date(),
+      }]);
+      return;
+    }
+    
+    setIsLoadingSuggestions(true);
+    setShowSuggestions(true);
+    
+    const recentEvents = gameLog
+      .filter(log => log.type === 'narration' || log.type === 'result')
+      .slice(-5)
+      .map(log => log.content);
+    
+    const sessionCharacters = characters.filter(c => 
+      currentSession?.characters.includes(c.id)
+    );
+    
+    try {
+      const result = await aiService.generateDMSuggestions(
+        currentWorld,
+        sessionCharacters,
+        recentEvents,
+        currentSession?.currentTurn || 0
+      );
+      setAiSuggestions(result.suggestions);
+    } catch (error) {
+      console.error('获取 AI 建议失败:', error);
+      setAiSuggestions([]);
+      setGameLog(prev => [...prev, {
+        type: 'system',
+        content: '获取 AI 建议失败，请重试',
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+  
+  // 选择 AI 建议
+  const handleSelectSuggestion = (suggestion: typeof aiSuggestions[0]) => {
+    setDmNarration(suggestion.content);
+    setShowSuggestions(false);
+  };
+  
+  // 获取场景类型图标
+  const getSuggestionIcon = (type: string) => {
+    switch (type) {
+      case 'combat': return Swords;
+      case 'exploration': return Compass;
+      case 'social': return MessageCircle;
+      case 'mystery': return HelpCircle;
+      case 'rest': return Coffee;
+      default: return Sparkles;
+    }
+  };
+  
+  // 获取场景类型颜色
+  const getSuggestionColor = (type: string) => {
+    switch (type) {
+      case 'combat': return 'text-blood-primary border-blood-primary/30 bg-blood-primary/10';
+      case 'exploration': return 'text-arcane-glow border-arcane-primary/30 bg-arcane-primary/10';
+      case 'social': return 'text-gold-primary border-gold-primary/30 bg-gold-primary/10';
+      case 'mystery': return 'text-purple-400 border-purple-400/30 bg-purple-400/10';
+      case 'rest': return 'text-green-400 border-green-400/30 bg-green-400/10';
+      default: return 'text-parchment-light border-forge-border bg-forge-surface';
+    }
   };
   
   // 如果没有会话，显示创建界面
@@ -481,35 +575,127 @@ export function GameSession() {
           </div>
           
           {/* DM输入区 */}
-          <div className="p-4 border-t border-forge-border bg-forge-surface/50">
-            <div className="flex gap-3">
-              <Textarea
-                placeholder="作为DM，描述当前场景或情境..."
-                value={dmNarration}
-                onChange={(e) => setDmNarration(e.target.value)}
-                className="flex-1 min-h-[60px] max-h-[120px]"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleDMNarration();
-                  }
-                }}
-              />
-              <div className="flex flex-col gap-2">
-                <Button onClick={handleDMNarration} disabled={!dmNarration.trim()}>
-                  <Send className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="gold"
-                  onClick={handleRequestAIActions}
-                  disabled={isAIThinking}
+          <div className="border-t border-forge-border bg-forge-surface/50">
+            {/* AI 建议面板 */}
+            <AnimatePresence>
+              {showSuggestions && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden border-b border-forge-border"
                 >
-                  {isAIThinking ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Users className="w-4 h-4" />
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-display text-parchment-light/80 flex items-center gap-2">
+                        <Wand2 className="w-4 h-4 text-arcane-glow" />
+                        AI 场景建议
+                      </h4>
+                      <button
+                        onClick={() => setShowSuggestions(false)}
+                        className="text-xs text-parchment-light/40 hover:text-parchment-light"
+                      >
+                        关闭
+                      </button>
+                    </div>
+                    
+                    {isLoadingSuggestions ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 text-arcane-glow animate-spin" />
+                        <span className="ml-2 text-parchment-light/60">正在生成建议...</span>
+                      </div>
+                    ) : aiSuggestions.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {aiSuggestions.map((suggestion, index) => {
+                          const Icon = getSuggestionIcon(suggestion.type);
+                          return (
+                            <motion.button
+                              key={index}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.1 }}
+                              onClick={() => handleSelectSuggestion(suggestion)}
+                              className={cn(
+                                'p-3 rounded-lg border text-left transition-all hover:scale-[1.02]',
+                                getSuggestionColor(suggestion.type)
+                              )}
+                            >
+                              <div className="flex items-center gap-2 mb-2">
+                                <Icon className="w-4 h-4" />
+                                <span className="font-display font-semibold text-sm">
+                                  {suggestion.title}
+                                </span>
+                              </div>
+                              <p className="text-xs text-parchment-light/70 line-clamp-3">
+                                {suggestion.content}
+                              </p>
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-parchment-light/40 text-sm">
+                        暂无建议，请重试
+                      </div>
+                    )}
+                    
+                    <div className="mt-3 text-xs text-parchment-light/40 text-center">
+                      点击选择建议填入输入框，可修改后发送
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            
+            {/* 输入区 */}
+            <div className="p-4">
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-2">
+                  <Textarea
+                    placeholder="作为DM，描述当前场景或情境..."
+                    value={dmNarration}
+                    onChange={(e) => setDmNarration(e.target.value)}
+                    className="min-h-[60px] max-h-[120px]"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleDMNarration();
+                      }
+                    }}
+                  />
+                  {/* AI 辅助按钮 */}
+                  {aiService.isConfigured() && (
+                    <button
+                      onClick={handleGetSuggestions}
+                      disabled={isLoadingSuggestions}
+                      className="text-xs text-arcane-glow/70 hover:text-arcane-glow flex items-center gap-1 transition-colors"
+                    >
+                      {isLoadingSuggestions ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Wand2 className="w-3 h-3" />
+                      )}
+                      {showSuggestions ? '刷新 AI 建议' : '获取 AI 建议'}
+                    </button>
                   )}
-                </Button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button onClick={handleDMNarration} disabled={!dmNarration.trim()} title="发送场景描述">
+                    <Send className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="gold"
+                    onClick={handleRequestAIActions}
+                    disabled={isAIThinking}
+                    title="让 AI 角色行动"
+                  >
+                    {isAIThinking ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Users className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

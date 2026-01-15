@@ -1,13 +1,19 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, Plus, Play, Settings, Scroll, Users, Dices, Clock, Sparkles } from 'lucide-react';
+import { Globe, Plus, Play, Settings, Scroll, Users, Dices, Clock, Sparkles, Upload, Download, Loader2 } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { useWorldStore, useAppStore } from '@/stores';
 import { cn } from '@/utils/cn';
+import { archiveService, type WorldArchive, type FullArchive } from '@/services/archive';
+import { logger, LogCategories } from '@/services/logger';
 
 export function HomePage() {
   const { worlds, loadWorlds, isLoading } = useWorldStore();
   const { setCurrentView, setCurrentWorld, aiConfig } = useAppStore();
+  
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExportingAll, setIsExportingAll] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   useEffect(() => {
     loadWorlds();
@@ -16,6 +22,63 @@ export function HomePage() {
   const handleWorldClick = (worldId: string) => {
     setCurrentWorld(worldId);
     setCurrentView('world-view');
+  };
+  
+  // 导入世界存档
+  const handleImportWorld = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setIsImporting(true);
+    try {
+      const data = await archiveService.readFromFile(file);
+      const validation = archiveService.validateArchive(data);
+      
+      if (!validation.valid) {
+        alert('无效的存档文件: ' + validation.error);
+        return;
+      }
+      
+      if (validation.type === 'world') {
+        const result = await archiveService.importWorld(data as WorldArchive);
+        await loadWorlds();
+        alert(`世界"${(data as WorldArchive).world.name}"导入成功！\n导入了 ${result.imported.characters} 个角色，${result.imported.sessions} 个会话。`);
+        // 自动跳转到导入的世界
+        setCurrentWorld(result.worldId);
+        setCurrentView('world-view');
+      } else if (validation.type === 'full') {
+        if (confirm('这是一个完整存档，将导入所有世界数据。是否继续？')) {
+          const result = await archiveService.importAll(data as FullArchive);
+          await loadWorlds();
+          alert(`导入成功！\n${result.worlds} 个世界，${result.characters} 个角色，${result.sessions} 个会话。`);
+        }
+      } else {
+        alert('请在世界详情页导入角色存档');
+      }
+    } catch (error) {
+      logger.error(LogCategories.ARCHIVE, '导入存档失败', error);
+      alert('导入失败: ' + (error as Error).message);
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+  
+  // 导出所有数据
+  const handleExportAll = async () => {
+    setIsExportingAll(true);
+    try {
+      const archive = await archiveService.exportAll();
+      const filename = `StoryForge_完整存档_${new Date().toISOString().split('T')[0]}.json`;
+      archiveService.downloadAsFile(archive, filename);
+    } catch (error) {
+      logger.error(LogCategories.ARCHIVE, '导出全部数据失败', error);
+      alert('导出失败，请重试');
+    } finally {
+      setIsExportingAll(false);
+    }
   };
   
   return (
@@ -62,6 +125,15 @@ export function HomePage() {
               你的乐趣，是看着他们在规则中走向不可预测的命运。
             </p>
             
+            {/* 隐藏的文件输入 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleImportWorld}
+            />
+            
             <div className="flex flex-wrap justify-center gap-4">
               <Button
                 variant="gold"
@@ -70,6 +142,19 @@ export function HomePage() {
               >
                 <Plus className="w-5 h-5 mr-2" />
                 创造新世界
+              </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isImporting}
+              >
+                {isImporting ? (
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="w-5 h-5 mr-2" />
+                )}
+                导入存档
               </Button>
               <Button
                 variant="secondary"
@@ -161,14 +246,29 @@ export function HomePage() {
               你的世界
             </h2>
             {worlds.length > 0 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setCurrentView('world-create')}
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                新建
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleExportAll}
+                  disabled={isExportingAll}
+                  title="导出所有数据"
+                >
+                  {isExportingAll ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentView('world-create')}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  新建
+                </Button>
+              </div>
             )}
           </div>
           

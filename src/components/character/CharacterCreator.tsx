@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Dices, BookOpen, Brain, Heart, Sparkles, ChevronRight, ChevronLeft, Loader2 } from 'lucide-react';
+import { User, Dices, BookOpen, Brain, Heart, Sparkles, ChevronRight, ChevronLeft, Loader2, Wand2, Shuffle } from 'lucide-react';
 import { Button, Input, Textarea, Card, Select } from '@/components/ui';
-import { useCharacterStore, useAppStore } from '@/stores';
+import { useCharacterStore, useAppStore, useWorldStore } from '@/stores';
 import type { Alignment, CharacterAttributes, CharacterSkills, CharacterBackground } from '@/types';
 import { cn } from '@/utils/cn';
 import { getAttributeModifier, formatModifier } from '@/utils/dice';
+import { aiService } from '@/services/ai';
 
 const ALIGNMENTS: { value: Alignment; label: string }[] = [
   { value: 'lawful-good', label: '守序善良' },
@@ -46,6 +47,11 @@ const DEFAULT_SKILLS: CharacterSkills = {
 export function CharacterCreator() {
   const [step, setStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingBackground, setIsGeneratingBackground] = useState(false);
+  
+  // AI 生成模式
+  const [aiPrompt, setAiPrompt] = useState('');
   
   // 基础信息
   const [name, setName] = useState('');
@@ -77,7 +83,93 @@ export function CharacterCreator() {
   });
   
   const { createCharacter } = useCharacterStore();
-  const { currentWorldId, setCurrentView } = useAppStore();
+  const { currentWorldId, setCurrentView, aiConfig } = useAppStore();
+  const { currentWorld, loadWorld } = useWorldStore();
+  
+  // 加载当前世界信息
+  useEffect(() => {
+    if (currentWorldId && !currentWorld) {
+      loadWorld(currentWorldId);
+    }
+  }, [currentWorldId, currentWorld, loadWorld]);
+  
+  // AI 是否已配置
+  const isAIConfigured = aiConfig.modelUrl && aiConfig.apiKey;
+  
+  // AI 生成角色
+  const handleAIGenerate = async () => {
+    if (!isAIConfigured) {
+      alert('请先在设置中配置 AI 服务');
+      return;
+    }
+    
+    setIsGenerating(true);
+    try {
+      // 设置 AI 配置
+      aiService.setConfig(aiConfig);
+      
+      // 调用 AI 生成角色
+      const generated = await aiService.generateCharacter(aiPrompt, currentWorld || undefined);
+      
+      // 填充表单
+      setName(generated.name);
+      setRace(generated.race);
+      setCharClass(generated.class);
+      setAlignment(generated.alignment);
+      setLevel(generated.level);
+      setBackstory(generated.backstory);
+      setAttributes(generated.attributes);
+      setSkills(generated.skills);
+      setBackground(generated.background);
+      
+    } catch (error) {
+      console.error('AI 生成角色失败:', error);
+      alert('AI 生成失败，请检查 AI 配置或稍后重试');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+  
+  // AI 生成背景要素
+  const handleGenerateBackground = async () => {
+    if (!isAIConfigured) {
+      alert('请先在设置中配置 AI 服务');
+      return;
+    }
+    
+    if (!name.trim()) {
+      alert('请先填写角色姓名');
+      return;
+    }
+    
+    setIsGeneratingBackground(true);
+    try {
+      // 设置 AI 配置
+      aiService.setConfig(aiConfig);
+      
+      // 调用 AI 生成背景要素
+      const generated = await aiService.generateCharacterBackground(
+        {
+          name,
+          race,
+          class: charClass,
+          alignment,
+          level,
+          backstory,
+        },
+        currentWorld || undefined
+      );
+      
+      // 填充背景要素
+      setBackground(generated);
+      
+    } catch (error) {
+      console.error('AI 生成背景要素失败:', error);
+      alert('AI 生成失败，请检查 AI 配置或稍后重试');
+    } finally {
+      setIsGeneratingBackground(false);
+    }
+  };
   
   const updateAttribute = (key: keyof CharacterAttributes, value: number) => {
     setAttributes(prev => ({ ...prev, [key]: Math.max(1, Math.min(20, value)) }));
@@ -207,7 +299,81 @@ export function CharacterCreator() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
+              className="space-y-6"
             >
+              {/* AI 生成角色卡片 */}
+              <Card className="p-6 border-arcane-primary/30 bg-gradient-to-br from-arcane-primary/5 to-transparent">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-lg bg-arcane-primary/20 flex items-center justify-center">
+                    <Wand2 className="w-5 h-5 text-arcane-glow" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-display font-semibold text-parchment-light">
+                      AI 智能生成
+                    </h3>
+                    <p className="text-sm text-parchment-light/60">
+                      输入简单描述，让 AI 为你生成完整角色
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <Textarea
+                    placeholder="例如：一个神秘的精灵法师，曾在魔法学院学习，因为一次实验失败被逐出...&#10;或者：话少但忠诚的矮人战士&#10;或者留空，AI 将完全随机生成"
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    className="min-h-[100px] bg-forge-dark/50"
+                  />
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      variant="primary"
+                      onClick={handleAIGenerate}
+                      disabled={isGenerating || !isAIConfigured}
+                      className="flex-1"
+                    >
+                      {isGenerating ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          正在生成...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          {aiPrompt.trim() ? 'AI 生成角色' : '随机生成角色'}
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setAiPrompt('');
+                        handleAIGenerate();
+                      }}
+                      disabled={isGenerating || !isAIConfigured}
+                      title="完全随机"
+                    >
+                      <Shuffle className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  
+                  {!isAIConfigured && (
+                    <p className="text-sm text-blood-primary/80 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blood-primary" />
+                      请先在设置中配置 AI 服务
+                    </p>
+                  )}
+                </div>
+              </Card>
+              
+              {/* 分隔线 */}
+              <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-forge-border" />
+                <span className="text-sm text-parchment-light/40 font-display">或手动填写</span>
+                <div className="flex-1 h-px bg-forge-border" />
+              </div>
+              
+              {/* 手动填写表单 */}
               <Card className="p-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
@@ -395,9 +561,37 @@ export function CharacterCreator() {
               exit={{ opacity: 0, x: -20 }}
             >
               <Card className="p-8">
-                <h3 className="text-lg font-display font-semibold text-parchment-light mb-6">
-                  背景要素
-                </h3>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-display font-semibold text-parchment-light">
+                    背景要素
+                  </h3>
+                  <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    onClick={handleGenerateBackground}
+                    disabled={isGeneratingBackground || !isAIConfigured}
+                    title={!isAIConfigured ? '请先配置 AI 服务' : '根据角色信息 AI 生成背景要素'}
+                  >
+                    {isGeneratingBackground ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        生成中...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-4 h-4 mr-2" />
+                        AI 填充
+                      </>
+                    )}
+                  </Button>
+                </div>
+                
+                {!isAIConfigured && (
+                  <p className="text-sm text-parchment-light/50 mb-4 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-parchment-light/40" />
+                    配置 AI 后可自动生成背景要素
+                  </p>
+                )}
                 
                 <div className="space-y-6">
                   <Textarea
