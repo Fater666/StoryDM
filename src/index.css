@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-forge-border;
+  }
+  
+  body {
+    @apply bg-forge-bg text-parchment-light font-body antialiased;
+    background-image: 
+      radial-gradient(ellipse at top, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom right, rgba(245, 158, 11, 0.05) 0%, transparent 40%),
+      linear-gradient(to bottom, #0a0a0f, #0d0d14);
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-forge-surface;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-forge-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-arcane-muted;
+  }
+
+  ::selection {
+    @apply bg-arcane-primary/30 text-parchment-light;
+  }
+}
+
+@layer components {
+  /* 卡片样式 */
+  .card {
+    @apply bg-forge-card/80 backdrop-blur-sm border border-forge-border rounded-xl;
+    @apply shadow-inner-glow;
+  }
+
+  .card-hover {
+    @apply card transition-all duration-300;
+    @apply hover:border-arcane-primary/50 hover:shadow-arcane;
+  }
+
+  /* 按钮样式 */
+  .btn {
+    @apply px-4 py-2 rounded-lg font-display font-medium transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-arcane-primary/50;
+  }
+
+  .btn-primary {
+    @apply btn bg-arcane-primary text-white;
+    @apply hover:bg-arcane-glow hover:shadow-arcane;
+    @apply active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply btn bg-forge-surface border border-forge-border text-parchment-light;
+    @apply hover:bg-forge-hover hover:border-arcane-primary/30;
+    @apply active:scale-95;
+  }
+
+  .btn-gold {
+    @apply btn bg-gold-primary text-forge-bg font-semibold;
+    @apply hover:bg-gold-light hover:shadow-gold;
+    @apply active:scale-95;
+  }
+
+  .btn-danger {
+    @apply btn bg-blood-primary text-white;
+    @apply hover:bg-blood-dark;
+    @apply active:scale-95;
+  }
+
+  /* 输入框样式 */
+  .input {
+    @apply w-full px-4 py-3 bg-forge-surface border border-forge-border rounded-lg;
+    @apply text-parchment-light placeholder-parchment-light/40;
+    @apply focus:outline-none focus:border-arcane-primary/50 focus:ring-2 focus:ring-arcane-primary/20;
+    @apply transition-all duration-200;
+  }
+
+  .textarea {
+    @apply input resize-none;
+  }
+
+  /* 标题样式 */
+  .title-arcane {
+    @apply font-display font-bold text-transparent bg-clip-text;
+    background-image: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 50%, #6366f1 100%);
+  }
+
+  .title-gold {
+    @apply font-display font-bold text-transparent bg-clip-text;
+    background-image: linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%);
+  }
+
+  /* 发光效果 */
+  .glow-arcane {
+    @apply shadow-arcane;
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  /* 骰子样式 */
+  .dice {
+    @apply inline-flex items-center justify-center w-12 h-12 rounded-lg;
+    @apply bg-arcane-primary text-white font-mono font-bold text-lg;
+    @apply shadow-arcane;
+  }
+
+  .dice-rolling {
+    @apply dice animate-dice-roll;
+  }
+
+  /* 属性条 */
+  .stat-bar {
+    @apply h-2 bg-forge-surface rounded-full overflow-hidden;
+  }
+
+  .stat-bar-fill {
+    @apply h-full rounded-full transition-all duration-500;
+    background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+  }
+
+  /* 分隔线 */
+  .divider {
+    @apply w-full h-px bg-gradient-to-r from-transparent via-forge-border to-transparent;
+  }
+
+  .divider-arcane {
+    @apply w-full h-px bg-gradient-to-r from-transparent via-arcane-primary/50 to-transparent;
+  }
+}
+
+@layer utilities {
+  .text-shadow-glow {
+    text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+  }
+
+  .animate-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
