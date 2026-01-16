@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Key, Server, Brain, Save, Check, AlertCircle } from 'lucide-react';
+import { Settings, Key, Server, Brain, Save, Check, AlertCircle, Download, Upload } from 'lucide-react';
 import { Button, Input, Card, CardHeader, CardContent } from '@/components/ui';
 import { useAppStore } from '@/stores';
 import { aiService } from '@/services/ai';
 import { saveAIConfig, getAIConfig } from '@/services/db';
+import { archiveService } from '@/services/archive';
 import type { AIConfig } from '@/types';
 
 export function SettingsPage() {
@@ -27,6 +28,45 @@ export function SettingsPage() {
     };
     loadConfig();
   }, []);
+  
+  // 下载存档文件
+  const handleDownloadArchive = async () => {
+    const archive = await archiveService.exportAll();
+    const filename = `storyforge_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    archiveService.downloadAsFile(archive, filename);
+  };
+  
+  // 上传存档文件
+  const handleUploadArchive = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      
+      try {
+        const data = await archiveService.readFromFile(file);
+        const validation = archiveService.validateArchive(data);
+        
+        if (!validation.valid) {
+          alert('无效的存档文件');
+          return;
+        }
+        
+        if (!confirm('确定要导入存档吗？这将覆盖当前所有数据！')) {
+          return;
+        }
+        
+        await archiveService.importAll(data, { overwrite: true });
+        alert('导入成功！页面将刷新');
+        window.location.reload();
+      } catch (error) {
+        alert('导入失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      }
+    };
+    input.click();
+  };
   
   const handleSave = async () => {
     setIsSaving(true);
@@ -218,6 +258,43 @@ export function SettingsPage() {
                   )}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+        
+        {/* 数据备份 */}
+        <motion.div
+          className="mt-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Download className="w-5 h-5 text-arcane-glow" />
+                <h2 className="text-lg font-display font-semibold text-parchment-light">
+                  数据备份
+                </h2>
+              </div>
+              <p className="text-sm text-parchment-light/60 mt-1">
+                导出或导入全部数据
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3">
+                <Button variant="secondary" onClick={handleDownloadArchive}>
+                  <Download className="w-4 h-4 mr-2" />
+                  导出存档
+                </Button>
+                <Button variant="secondary" onClick={handleUploadArchive}>
+                  <Upload className="w-4 h-4 mr-2" />
+                  导入存档
+                </Button>
+              </div>
+              <p className="text-xs text-parchment-light/40 mt-3">
+                提示：游戏数据会自动保存，每个冒险都有独立存档
+              </p>
             </CardContent>
           </Card>
         </motion.div>

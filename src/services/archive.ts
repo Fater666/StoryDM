@@ -1,6 +1,6 @@
-import { db } from './db';
+import { db, getAIConfig, saveAIConfig } from './db';
 import { logger, LogCategories } from './logger';
-import type { World, Character, Session, MainQuest } from '@/types';
+import type { World, Character, Session, MainQuest, AIConfig } from '@/types';
 
 // 存档数据结构
 export interface WorldArchive {
@@ -26,9 +26,11 @@ export interface FullArchive {
   characters: Character[];
   sessions: Session[];
   mainQuests: MainQuest[];
+  aiConfig?: AIConfig;
 }
 
 const ARCHIVE_VERSION = '1.0.0';
+const LOCAL_STORAGE_KEY = 'storyforge_local_archive';
 
 class ArchiveService {
   // ==================== 导出功能 ====================
@@ -111,6 +113,7 @@ class ArchiveService {
       const characters = await db.characters.toArray();
       const sessions = await db.sessions.toArray();
       const mainQuests = await db.mainQuests.toArray();
+      const aiConfig = await getAIConfig();
       
       const archive: FullArchive = {
         version: ARCHIVE_VERSION,
@@ -119,12 +122,14 @@ class ArchiveService {
         characters,
         sessions,
         mainQuests,
+        aiConfig: aiConfig || undefined,
       };
       
       logger.info(LogCategories.ARCHIVE, `全部数据导出成功`, {
         worldsCount: worlds.length,
         charactersCount: characters.length,
         sessionsCount: sessions.length,
+        hasAIConfig: !!aiConfig,
       });
       
       return archive;
@@ -265,6 +270,7 @@ class ArchiveService {
   // 导入全部数据
   async importAll(archive: FullArchive, options?: {
     overwrite?: boolean;
+    skipAIConfig?: boolean; // 跳过AI配置恢复
   }): Promise<{
     worlds: number;
     characters: number;
@@ -274,7 +280,7 @@ class ArchiveService {
     try {
       logger.info(LogCategories.ARCHIVE, `开始导入全部数据`);
       
-      const { overwrite = false } = options || {};
+      const { overwrite = false, skipAIConfig = false } = options || {};
       
       if (overwrite) {
         // 清空所有数据
@@ -341,6 +347,15 @@ class ArchiveService {
           id: crypto.randomUUID(),
           worldId: newWorldId,
         });
+      }
+      
+      // 导入 AI 配置（如果存在且未跳过）
+      if (archive.aiConfig && !skipAIConfig) {
+        const existingConfig = await getAIConfig();
+        if (!existingConfig || overwrite) {
+          await saveAIConfig(archive.aiConfig);
+          logger.info(LogCategories.ARCHIVE, `AI 配置已恢复`);
+        }
       }
       
       const result = {
@@ -424,6 +439,120 @@ class ArchiveService {
     }
     
     return { valid: false, type: null, error: '未知的存档格式' };
+  }
+  
+  // ==================== 本地存储功能 ====================
+  
+  // 一键保存到本地 (localStorage)
+  async saveToLocal(): Promise<{ success: boolean; error?: string }> {
+    try {
+      logger.info(LogCategories.ARCHIVE, '开始保存存档到本地');
+      
+      const archive = await this.exportAll();
+      const json = JSON.stringify(archive);
+      
+      // 检查 localStorage 大小限制（通常是 5-10MB）
+      const sizeInMB = new Blob([json]).size / (1024 * 1024);
+      if (sizeInMB > 4.5) {
+        logger.warn(LogCategories.ARCHIVE, `存档过大: ${sizeInMB.toFixed(2)}MB，可能无法保存`);
+        return { 
+          success: false, 
+          error: `存档过大 (${sizeInMB.toFixed(2)}MB)，超出本地存储限制` 
+        };
+      }
+      
+      localStorage.setItem(LOCAL_STORAGE_KEY, json);
+      
+      logger.info(LogCategories.ARCHIVE, '本地存档保存成功', {
+        sizeInMB: sizeInMB.toFixed(2),
+        worldsCount: archive.worlds.length,
+        charactersCount: archive.characters.length,
+        sessionsCount: archive.sessions.length,
+      });
+      
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      logger.error(LogCategories.ARCHIVE, '本地存档保存失败', { error: message });
+      return { success: false, error: message };
+    }
+  }
+  
+  // 从本地加载存档
+  async loadFromLocal(): Promise<{ 
+    success: boolean; 
+    error?: string;
+    imported?: { worlds: number; characters: number; sessions: number; mainQuests: number };
+  }> {
+    try {
+      logger.info(LogCategories.ARCHIVE, '开始从本地加载存档');
+      
+      const json = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!json) {
+        logger.info(LogCategories.ARCHIVE, '本地无存档');
+        return { success: false, error: '本地无存档' };
+      }
+      
+      const archive = JSON.parse(json) as FullArchive;
+      
+      // 验证存档
+      const validation = this.validateArchive(archive);
+      if (!validation.valid || validation.type !== 'full') {
+        logger.error(LogCategories.ARCHIVE, '本地存档格式无效');
+        return { success: false, error: '存档格式无效' };
+      }
+      
+      // 导入数据（覆盖模式，但跳过AI配置以保留用户当前设置）
+      const result = await this.importAll(archive, { overwrite: true, skipAIConfig: true });
+      
+      logger.info(LogCategories.ARCHIVE, '本地存档加载成功', result);
+      
+      return { success: true, imported: result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      logger.error(LogCategories.ARCHIVE, '本地存档加载失败', { error: message });
+      return { success: false, error: message };
+    }
+  }
+  
+  // 检查是否有本地存档
+  hasLocalArchive(): boolean {
+    return localStorage.getItem(LOCAL_STORAGE_KEY) !== null;
+  }
+  
+  // 获取本地存档信息
+  getLocalArchiveInfo(): { 
+    exists: boolean; 
+    exportedAt?: string; 
+    worldsCount?: number;
+    charactersCount?: number;
+    sessionsCount?: number;
+    sizeInKB?: number;
+  } | null {
+    try {
+      const json = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!json) {
+        return { exists: false };
+      }
+      
+      const archive = JSON.parse(json) as FullArchive;
+      return {
+        exists: true,
+        exportedAt: archive.exportedAt,
+        worldsCount: archive.worlds?.length || 0,
+        charactersCount: archive.characters?.length || 0,
+        sessionsCount: archive.sessions?.length || 0,
+        sizeInKB: Math.round(new Blob([json]).size / 1024),
+      };
+    } catch {
+      return { exists: false };
+    }
+  }
+  
+  // 清除本地存档
+  clearLocalArchive(): void {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    logger.info(LogCategories.ARCHIVE, '本地存档已清除');
   }
 }
 

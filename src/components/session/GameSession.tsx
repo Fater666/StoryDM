@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Dices, MessageSquare, Clock, Users, Scroll, ChevronRight, Loader2, Send, Wand2, Sparkles, Swords, Compass, MessageCircle, HelpCircle, Coffee } from 'lucide-react';
+import { Play, Pause, Dices, MessageSquare, Clock, Users, Scroll, ChevronRight, Loader2, Send, Wand2, Sparkles, Swords, Compass, MessageCircle, HelpCircle, Coffee, Plus, FolderOpen, Trash2, ArrowLeft, Target, Lightbulb, MapPin } from 'lucide-react';
 import { Button, Card, Textarea, Modal, Select } from '@/components/ui';
 import { DiceRoller, DiceResult } from '@/components/ui/Dice';
 import { useSessionStore, useCharacterStore, useWorldStore, useAppStore } from '@/stores';
 import { aiService } from '@/services/ai';
-import type { TurnAction, TurnCheck, TurnResult, DiceRoll, DiceType, CheckType, Character } from '@/types';
+import { getMainQuestByWorld } from '@/services/db';
+import type { TurnAction, TurnCheck, TurnResult, DiceRoll, DiceType, CheckType, Character, MainQuest } from '@/types';
 import { cn } from '@/utils/cn';
 import { rollDiceSet, getAttributeModifier, isCheckSuccessful, isCriticalSuccess, isCriticalFailure } from '@/utils/dice';
 
@@ -41,6 +42,7 @@ export function GameSession() {
     loadSession,
     sessions,
     loadSessionsByWorld,
+    deleteSession,
     pendingActions,
     pendingChecks,
     addPendingAction,
@@ -51,6 +53,12 @@ export function GameSession() {
     addTimelineEvent,
     addAdventureLog,
   } = useSessionStore();
+  
+  // 清除当前会话，返回列表
+  const handleBackToList = () => {
+    useSessionStore.setState({ currentSession: null });
+    setGameLog([]);
+  };
   
   // 状态
   const [isCreatingSession, setIsCreatingSession] = useState(false);
@@ -87,11 +95,21 @@ export function GameSession() {
     type: 'combat' | 'exploration' | 'social' | 'mystery' | 'rest';
   }[]>([]);
   
+  // 主线任务
+  const [mainQuest, setMainQuest] = useState<MainQuest | null>(null);
+  
+  // 是否显示开场引导
+  const [showStartGuide, setShowStartGuide] = useState(true);
+  
   useEffect(() => {
     if (currentWorldId) {
       loadWorld(currentWorldId);
       loadCharactersByWorld(currentWorldId);
       loadSessionsByWorld(currentWorldId);
+      // 加载主线任务
+      getMainQuestByWorld(currentWorldId).then(quest => {
+        setMainQuest(quest || null);
+      });
     }
   }, [currentWorldId]);
   
@@ -411,100 +429,283 @@ export function GameSession() {
     }
   };
   
-  // 如果没有会话，显示创建界面
+  // 会话列表视图状态
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  
+  // 继续已有会话
+  const handleContinueSession = async (sessionId: string) => {
+    await loadSession(sessionId);
+    // 从会话中恢复日志（简化版，只显示系统消息）
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+      setGameLog([{
+        type: 'system',
+        content: `继续冒险「${session.name}」- 第 ${session.currentTurn + 1} 回合`,
+        timestamp: new Date(),
+      }]);
+    }
+  };
+  
+  // 删除会话
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('确定要删除这个冒险存档吗？此操作不可恢复！')) return;
+    await deleteSession(sessionId);
+  };
+  
+  // 如果没有会话，显示会话列表或创建界面
   if (!currentSession) {
+    // 显示创建新会话的表单
+    if (showCreateForm) {
+      return (
+        <div className="min-h-screen p-8">
+          <div className="max-w-2xl mx-auto">
+            <motion.div
+              className="text-center mb-8"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <h1 className="text-3xl font-display font-bold title-arcane mb-4">
+                开始新冒险
+              </h1>
+              <p className="text-parchment-light/60">
+                选择参与冒险的角色，开启一段新的旅程
+              </p>
+            </motion.div>
+            
+            <Card className="p-8">
+              <div className="space-y-6">
+                <Input
+                  label="冒险名称"
+                  placeholder="为这次冒险起个名字..."
+                  value={sessionName}
+                  onChange={(e) => setSessionName(e.target.value)}
+                />
+                
+                <div>
+                  <label className="block text-sm font-display text-parchment-light/80 mb-3">
+                    选择参与角色
+                  </label>
+                  <div className="space-y-2">
+                    {characters.filter(c => c.status === 'active').map(char => (
+                      <label
+                        key={char.id}
+                        className={cn(
+                          'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all',
+                          selectedCharacters.includes(char.id)
+                            ? 'bg-arcane-primary/20 border border-arcane-primary/50'
+                            : 'bg-forge-surface border border-forge-border hover:border-arcane-primary/30'
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCharacters.includes(char.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCharacters([...selectedCharacters, char.id]);
+                            } else {
+                              setSelectedCharacters(selectedCharacters.filter(id => id !== char.id));
+                            }
+                          }}
+                          className="sr-only"
+                        />
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-arcane-primary to-arcane-secondary flex items-center justify-center text-white font-display font-bold">
+                          {char.name.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="font-display font-semibold text-parchment-light">
+                            {char.name}
+                          </div>
+                          <div className="text-xs text-parchment-light/60">
+                            {char.race} · {char.class} · Lv.{char.level}
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="flex justify-between pt-4">
+                  <Button variant="secondary" onClick={() => setShowCreateForm(false)}>
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    返回列表
+                  </Button>
+                  <Button
+                    variant="gold"
+                    onClick={async () => {
+                      await handleCreateSession();
+                      setShowCreateForm(false);
+                    }}
+                    disabled={!sessionName.trim() || selectedCharacters.length === 0 || isCreatingSession}
+                  >
+                    {isCreatingSession ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        创建中...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 mr-2" />
+                        开始冒险
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+    
+    // 显示会话列表
     return (
       <div className="min-h-screen p-8">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <motion.div
             className="text-center mb-8"
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
           >
             <h1 className="text-3xl font-display font-bold title-arcane mb-4">
-              开始新冒险
+              冒险存档
             </h1>
             <p className="text-parchment-light/60">
-              选择参与冒险的角色，开启一段新的旅程
+              继续已有的冒险，或开启新的旅程
             </p>
           </motion.div>
           
-          <Card className="p-8">
-            <div className="space-y-6">
-              <Input
-                label="冒险名称"
-                placeholder="为这次冒险起个名字..."
-                value={sessionName}
-                onChange={(e) => setSessionName(e.target.value)}
-              />
-              
-              <div>
-                <label className="block text-sm font-display text-parchment-light/80 mb-3">
-                  选择参与角色
-                </label>
-                <div className="space-y-2">
-                  {characters.filter(c => c.status === 'active').map(char => (
-                    <label
-                      key={char.id}
-                      className={cn(
-                        'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all',
-                        selectedCharacters.includes(char.id)
-                          ? 'bg-arcane-primary/20 border border-arcane-primary/50'
-                          : 'bg-forge-surface border border-forge-border hover:border-arcane-primary/30'
-                      )}
+          {/* 新建冒险按钮 */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="mb-6"
+          >
+            <Card
+              variant="hover"
+              className="p-6 cursor-pointer border-dashed border-2"
+              onClick={() => setShowCreateForm(true)}
+            >
+              <div className="flex items-center justify-center gap-3 text-arcane-glow">
+                <Plus className="w-6 h-6" />
+                <span className="font-display font-semibold">开始新冒险</span>
+              </div>
+            </Card>
+          </motion.div>
+          
+          {/* 已有会话列表 */}
+          {sessions.length > 0 ? (
+            <div className="space-y-4">
+              <h3 className="text-sm font-display text-parchment-light/60 flex items-center gap-2">
+                <FolderOpen className="w-4 h-4" />
+                已保存的冒险 ({sessions.length})
+              </h3>
+              {sessions.map((session, index) => {
+                const sessionCharacters = characters.filter(c => session.characters.includes(c.id));
+                return (
+                  <motion.div
+                    key={session.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                  >
+                    <Card
+                      variant="hover"
+                      className="p-4 cursor-pointer"
+                      onClick={() => handleContinueSession(session.id)}
                     >
-                      <input
-                        type="checkbox"
-                        checked={selectedCharacters.includes(char.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedCharacters([...selectedCharacters, char.id]);
-                          } else {
-                            setSelectedCharacters(selectedCharacters.filter(id => id !== char.id));
-                          }
-                        }}
-                        className="sr-only"
-                      />
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-arcane-primary to-arcane-secondary flex items-center justify-center text-white font-display font-bold">
-                        {char.name.charAt(0)}
-                      </div>
-                      <div>
-                        <div className="font-display font-semibold text-parchment-light">
-                          {char.name}
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h4 className="font-display font-semibold text-lg text-parchment-light">
+                              {session.name}
+                            </h4>
+                            <span className={cn(
+                              'text-xs px-2 py-0.5 rounded',
+                              session.status === 'active' 
+                                ? 'bg-green-900/30 text-green-400' 
+                                : 'bg-forge-border text-parchment-light/60'
+                            )}>
+                              {session.status === 'active' ? '进行中' : '已暂停'}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-4 text-sm text-parchment-light/60 mb-3">
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-4 h-4" />
+                              第 {session.currentTurn + 1} 回合
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Users className="w-4 h-4" />
+                              {sessionCharacters.length} 名角色
+                            </span>
+                          </div>
+                          
+                          {/* 参与角色头像 */}
+                          <div className="flex items-center gap-2">
+                            {sessionCharacters.slice(0, 5).map(char => (
+                              <div
+                                key={char.id}
+                                className="w-8 h-8 rounded bg-gradient-to-br from-arcane-primary to-arcane-secondary flex items-center justify-center text-white font-display text-sm font-bold"
+                                title={char.name}
+                              >
+                                {char.name.charAt(0)}
+                              </div>
+                            ))}
+                            {sessionCharacters.length > 5 && (
+                              <div className="w-8 h-8 rounded bg-forge-surface border border-forge-border flex items-center justify-center text-parchment-light/60 text-xs">
+                                +{sessionCharacters.length - 5}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* 最后更新时间 */}
+                          <div className="text-xs text-parchment-light/40 mt-3">
+                            上次游玩: {new Date(session.updatedAt).toLocaleString('zh-CN')}
+                          </div>
                         </div>
-                        <div className="text-xs text-parchment-light/60">
-                          {char.race} · {char.class} · Lv.{char.level}
+                        
+                        {/* 操作按钮 */}
+                        <div className="flex items-center gap-2 ml-4">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={(e) => handleDeleteSession(session.id, e)}
+                            className="text-blood-primary hover:bg-blood-primary/20"
+                            title="删除存档"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" title="继续冒险">
+                            <Play className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="flex justify-between pt-4">
-                <Button variant="secondary" onClick={() => setCurrentView('world-view')}>
-                  返回
-                </Button>
-                <Button
-                  variant="gold"
-                  onClick={handleCreateSession}
-                  disabled={!sessionName.trim() || selectedCharacters.length === 0 || isCreatingSession}
-                >
-                  {isCreatingSession ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      创建中...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 mr-2" />
-                      开始冒险
-                    </>
-                  )}
-                </Button>
-              </div>
+                    </Card>
+                  </motion.div>
+                );
+              })}
             </div>
-          </Card>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-12 text-parchment-light/40"
+            >
+              <Scroll className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>暂无保存的冒险</p>
+              <p className="text-sm mt-1">点击上方按钮开始新的冒险</p>
+            </motion.div>
+          )}
+          
+          {/* 返回按钮 */}
+          <div className="mt-8 flex justify-center">
+            <Button variant="secondary" onClick={() => setCurrentView('world-view')}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              返回世界
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -525,6 +726,10 @@ export function GameSession() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={handleBackToList}>
+              <FolderOpen className="w-4 h-4 mr-1" />
+              存档列表
+            </Button>
             <Button variant="secondary" size="sm" onClick={() => setCurrentView('world-view')}>
               返回世界
             </Button>
@@ -537,6 +742,68 @@ export function GameSession() {
         <div className="flex-1 flex flex-col">
           {/* 游戏日志 */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* 开场引导卡片 - 仅在第一回合且没有日志时显示 */}
+            {currentSession.currentTurn === 0 && gameLog.length <= 1 && showStartGuide && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="relative"
+              >
+                <Card className="p-6 bg-gradient-to-br from-arcane-primary/20 to-arcane-secondary/10 border-arcane-primary/30">
+                  <button
+                    onClick={() => setShowStartGuide(false)}
+                    className="absolute top-3 right-3 text-parchment-light/40 hover:text-parchment-light text-sm"
+                  >
+                    ✕
+                  </button>
+                  
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-arcane-primary/30 flex items-center justify-center">
+                      <Lightbulb className="w-6 h-6 text-arcane-glow" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-display font-bold text-lg text-parchment-light mb-2">
+                        🎭 欢迎来到冒险！
+                      </h3>
+                      <p className="text-parchment-light/80 text-sm mb-4">
+                        作为 DM (地下城主)，你需要为角色们描述场景。这是你的第一次冒险，让我来帮你开始！
+                      </p>
+                      
+                      {/* 当前任务目标 */}
+                      {mainQuest && (
+                        <div className="mb-4 p-3 rounded-lg bg-gold-primary/10 border border-gold-primary/30">
+                          <div className="flex items-center gap-2 text-gold-primary mb-2">
+                            <Target className="w-4 h-4" />
+                            <span className="font-display font-semibold text-sm">当前主线</span>
+                          </div>
+                          <p className="text-parchment-light text-sm font-medium mb-1">
+                            {mainQuest.title}
+                          </p>
+                          {mainQuest.stages.filter(s => !s.completed)[0] && (
+                            <p className="text-parchment-light/70 text-xs">
+                              📍 阶段目标：{mainQuest.stages.filter(s => !s.completed)[0].objective}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="space-y-2 text-sm">
+                        <p className="text-parchment-light/70">
+                          <span className="text-arcane-glow font-semibold">步骤 1：</span> 点击下方的 <span className="text-arcane-glow font-semibold">「AI 帮我想」</span> 按钮，让 AI 为你生成开场场景建议
+                        </p>
+                        <p className="text-parchment-light/70">
+                          <span className="text-arcane-glow font-semibold">步骤 2：</span> 选择或修改场景描述后发送，角色们会自动做出反应
+                        </p>
+                        <p className="text-parchment-light/70">
+                          <span className="text-arcane-glow font-semibold">步骤 3：</span> 点击右侧的行动卡片来判定角色的行动结果
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </motion.div>
+            )}
+            
             <AnimatePresence>
               {gameLog.map((log, index) => (
                 <motion.div
@@ -649,6 +916,37 @@ export function GameSession() {
             
             {/* 输入区 */}
             <div className="p-4">
+              {/* AI 帮我想按钮 - 更显眼 */}
+              {aiService.isConfigured() && !showSuggestions && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-3"
+                >
+                  <Button
+                    variant="gold"
+                    onClick={handleGetSuggestions}
+                    disabled={isLoadingSuggestions}
+                    className="w-full py-3 text-base font-display"
+                  >
+                    {isLoadingSuggestions ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        正在生成场景建议...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-5 h-5 mr-2" />
+                        ✨ AI 帮我想场景
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-parchment-light/40 text-center mt-2">
+                    不知道该描述什么？让 AI 根据当前情况给你建议！
+                  </p>
+                </motion.div>
+              )}
+              
               <div className="flex gap-3">
                 <div className="flex-1 space-y-2">
                   <Textarea
@@ -663,8 +961,8 @@ export function GameSession() {
                       }
                     }}
                   />
-                  {/* AI 辅助按钮 */}
-                  {aiService.isConfigured() && (
+                  {/* 小型 AI 建议按钮 - 当面板已打开时 */}
+                  {aiService.isConfigured() && showSuggestions && (
                     <button
                       onClick={handleGetSuggestions}
                       disabled={isLoadingSuggestions}
@@ -675,7 +973,7 @@ export function GameSession() {
                       ) : (
                         <Wand2 className="w-3 h-3" />
                       )}
-                      {showSuggestions ? '刷新 AI 建议' : '获取 AI 建议'}
+                      刷新 AI 建议
                     </button>
                   )}
                 </div>

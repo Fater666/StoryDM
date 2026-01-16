@@ -43,6 +43,20 @@ class LoggerService {
     this.logLevel = level;
   }
   
+  // 发送日志到 Vite 开发服务器终端
+  private sendToTerminal(level: LogLevel, category: string, message: string, timestamp: Date, data?: any) {
+    // 只在开发环境下发送
+    if (import.meta.hot) {
+      import.meta.hot.send('app:log', {
+        level,
+        category,
+        message,
+        timestamp: timestamp.toISOString(),
+        data,
+      });
+    }
+  }
+  
   // 添加日志
   private log(level: LogLevel, category: string, message: string, data?: any) {
     if (this.levelPriority[level] < this.levelPriority[this.logLevel]) {
@@ -80,6 +94,9 @@ class LoggerService {
       `color: ${color}; font-weight: bold;`,
       data !== undefined ? data : ''
     );
+    
+    // 发送到 Vite 开发服务器终端
+    this.sendToTerminal(level, category, message, entry.timestamp, data);
     
     return entry;
   }

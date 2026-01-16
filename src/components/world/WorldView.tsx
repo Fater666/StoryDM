@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, MapPin, Users, Clock, Swords, Plus, Play, Settings, Trash2, Download, Upload, Loader2, Eye, Heart, Target, Link, AlertTriangle, Scroll, X } from 'lucide-react';
+import { Globe, MapPin, Users, Clock, Swords, Plus, Play, Settings, Trash2, Download, Upload, Loader2, Eye, Heart, Target, Link, AlertTriangle, Scroll, X, Flag, CheckCircle2, Circle, ChevronRight, Lightbulb } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, Tabs, TabsList, TabsTrigger, TabsContent, Modal } from '@/components/ui';
 import { useWorldStore, useCharacterStore, useSessionStore, useAppStore } from '@/stores';
 import { cn } from '@/utils/cn';
 import { archiveService, type WorldArchive, type CharacterArchive } from '@/services/archive';
 import { logger, LogCategories } from '@/services/logger';
-import type { Character } from '@/types';
+import { getMainQuestByWorld, updateMainQuest } from '@/services/db';
+import type { Character, MainQuest } from '@/types';
 import { getAttributeModifier, formatModifier } from '@/utils/dice';
 
 export function WorldView() {
@@ -24,9 +25,32 @@ export function WorldView() {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [showCharacterModal, setShowCharacterModal] = useState(false);
   
+  // 主线任务
+  const [mainQuest, setMainQuest] = useState<MainQuest | null>(null);
+  
   const handleViewCharacter = (char: Character) => {
     setSelectedCharacter(char);
     setShowCharacterModal(true);
+  };
+  
+  // 加载主线任务
+  const loadMainQuest = async () => {
+    if (currentWorldId) {
+      const quest = await getMainQuestByWorld(currentWorldId);
+      setMainQuest(quest || null);
+    }
+  };
+  
+  // 切换阶段完成状态
+  const handleToggleStage = async (stageId: string) => {
+    if (!mainQuest) return;
+    
+    const updatedStages = mainQuest.stages.map(s => 
+      s.id === stageId ? { ...s, completed: !s.completed } : s
+    );
+    
+    await updateMainQuest(mainQuest.id, { stages: updatedStages });
+    setMainQuest({ ...mainQuest, stages: updatedStages });
   };
   
   useEffect(() => {
@@ -34,6 +58,7 @@ export function WorldView() {
       loadWorld(currentWorldId);
       loadCharactersByWorld(currentWorldId);
       loadSessionsByWorld(currentWorldId);
+      loadMainQuest();
     }
   }, [currentWorldId]);
   
@@ -208,8 +233,14 @@ export function WorldView() {
         </motion.div>
         
         {/* 主要内容区 */}
-        <Tabs defaultValue="characters" className="space-y-6">
+        <Tabs defaultValue={mainQuest ? "mainquest" : "characters"} className="space-y-6">
           <TabsList>
+            {mainQuest && (
+              <TabsTrigger value="mainquest">
+                <Flag className="w-4 h-4 mr-2" />
+                主线
+              </TabsTrigger>
+            )}
             <TabsTrigger value="characters">
               <Users className="w-4 h-4 mr-2" />
               角色 ({characters.length})
@@ -231,6 +262,151 @@ export function WorldView() {
               会话 ({sessions.length})
             </TabsTrigger>
           </TabsList>
+          
+          {/* 主线任务 */}
+          {mainQuest && (
+            <TabsContent value="mainquest">
+              <div className="space-y-6">
+                {/* 主线标题和描述 */}
+                <Card className="p-6 bg-gradient-to-r from-gold-primary/10 to-transparent border-gold-primary/30">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-gold-primary/20 flex items-center justify-center">
+                      <Flag className="w-6 h-6 text-gold-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-2xl font-display font-bold text-parchment-light mb-2">
+                        {mainQuest.title}
+                      </h2>
+                      <p className="text-parchment-light/70">
+                        {mainQuest.description}
+                      </p>
+                      
+                      {/* 进度条 */}
+                      <div className="mt-4">
+                        <div className="flex justify-between text-sm text-parchment-light/60 mb-1">
+                          <span>主线进度</span>
+                          <span>
+                            {mainQuest.stages.filter(s => s.completed).length} / {mainQuest.stages.length}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-forge-surface rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-gold-primary to-gold-light transition-all duration-500"
+                            style={{ 
+                              width: `${(mainQuest.stages.filter(s => s.completed).length / mainQuest.stages.length) * 100}%` 
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                
+                {/* 阶段列表 */}
+                <div>
+                  <h3 className="text-sm font-display text-parchment-light/60 mb-4 flex items-center gap-2">
+                    <Target className="w-4 h-4" />
+                    任务阶段
+                  </h3>
+                  <div className="space-y-3">
+                    {mainQuest.stages.sort((a, b) => a.order - b.order).map((stage, index) => (
+                      <Card 
+                        key={stage.id} 
+                        className={cn(
+                          'p-4 transition-all cursor-pointer',
+                          stage.completed 
+                            ? 'bg-green-900/20 border-green-500/30' 
+                            : 'hover:border-gold-primary/50'
+                        )}
+                        onClick={() => handleToggleStage(stage.id)}
+                      >
+                        <div className="flex items-start gap-4">
+                          {/* 完成状态图标 */}
+                          <div className={cn(
+                            'w-8 h-8 rounded-full flex items-center justify-center transition-all',
+                            stage.completed 
+                              ? 'bg-green-500/20 text-green-400' 
+                              : 'bg-forge-surface text-parchment-light/40'
+                          )}>
+                            {stage.completed ? (
+                              <CheckCircle2 className="w-5 h-5" />
+                            ) : (
+                              <span className="font-display font-bold">{index + 1}</span>
+                            )}
+                          </div>
+                          
+                          <div className="flex-1">
+                            <h4 className={cn(
+                              'font-display font-semibold mb-2 transition-all',
+                              stage.completed 
+                                ? 'text-green-400 line-through opacity-70' 
+                                : 'text-parchment-light'
+                            )}>
+                              {stage.objective}
+                            </h4>
+                            
+                            {/* 提示 */}
+                            {!stage.completed && stage.hints.length > 0 && (
+                              <div className="space-y-1">
+                                {stage.hints.map((hint, i) => (
+                                  <div key={i} className="flex items-center gap-2 text-sm text-parchment-light/50">
+                                    <Lightbulb className="w-3 h-3 text-gold-primary/60" />
+                                    <span>{hint}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* 点击提示 */}
+                          <div className="text-xs text-parchment-light/30">
+                            点击{stage.completed ? '取消' : '完成'}
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* 可能发生的事件 */}
+                {mainQuest.potentialEvents.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-display text-parchment-light/60 mb-4 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      可能发生的事件（DM 参考）
+                    </h3>
+                    <Card className="p-4">
+                      <div className="flex flex-wrap gap-2">
+                        {mainQuest.potentialEvents.map((event, i) => (
+                          <span 
+                            key={i}
+                            className="px-3 py-1 rounded-full text-sm bg-forge-surface text-parchment-light/70"
+                          >
+                            {event}
+                          </span>
+                        ))}
+                      </div>
+                    </Card>
+                  </div>
+                )}
+                
+                {/* 世界走向 */}
+                {mainQuest.worldDirection && (
+                  <div>
+                    <h3 className="text-sm font-display text-parchment-light/60 mb-4 flex items-center gap-2">
+                      <ChevronRight className="w-4 h-4" />
+                      世界走向（DM 参考）
+                    </h3>
+                    <Card className="p-4">
+                      <p className="text-parchment-light/70 italic">
+                        "{mainQuest.worldDirection}"
+                      </p>
+                    </Card>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          )}
           
           <TabsContent value="characters">
             {/* 隐藏的文件输入 */}
